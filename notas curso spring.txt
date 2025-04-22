@@ -1,0 +1,831 @@
+-dependencias para usar: spring web, spring boot devtools
+-las clases se crean desde la vista "java projects"
+-las anotaciones (@) son etiquetas que se agregan a clases, métodos y campos para describirlos. Simplifican el proceso de crear aplicaciones.
+-método handler: el que maneja las peticiones
+- el Model de la instancia que se le inyecta a la vista desde el controlador es de la libreria de Spring; se puede usar un Map en vez de Model y es exactamente la misma lógica (especificar lso tipos genéricos y usar put en vez de addAttribute)
+- un objeto Map es ideal para crear un json con atributos clave-valor y devolverlo (@ResponseBody dentro de @RestController asume esa semantica)
+- @ResquestMapping: agregar una ruta por defecto
+- @RestController = @Controller, @ResponseBody (este va antes del metoo y después del @GetMapping) si se separan, pdoriamos tener algunos métodos con thymeleaf y otros con api en el mismo controdor, pero no es lo mas típico.
+- @GetMapping = @RequestMapping(method = RequestMethod.GET) poniendo además el atributo path, donde se especifica la url
+- en el thymeleaf, si bien name es privado, cuando accedemos a user.name, por detrás esta accediendo al getter (pone el get y la n mayuscula); esta convención se aplica en todo el ecosistema de Spring (y Java en general).
+- POJO: (plain old java object): objeto simpe de java, con getters/stters, que no dependen de un framework en especial
+- cuando trabajamos con thymeleaf (plantillas) no hace falta usar DTO porque los datos no viajan al cliente, directamente se renderizan en el servidor
+- el DTO permite crear estructuras de datos independientes del modelo de datos, para transportar datos entre componentes y reducir el numero de llamadas. 
+- uno puede ir personalizando el dto, para enviarlo con una forma determinado, por ejemplo el nombre y el apellido juntos: userDto.setName(user.getName().concat(" ").concat(user.getLastname())
+- List<User> users = Arrays.asList(user, user2, user3); es una clase helper de array para no tener que crear el arraylist y añadir en otras lineas cada elemento; pero ojo que es de tamaño fijo, no permite agregar ni remover (da un java.lang.UnsupportedOperationException); para eso, habría que hacer: List<User> users = new ArrayList<>(Arrays.asList(user, user2, user3));
+-thymeleaf:  <li th:if="${user.email != null}" th:text="${user.email}"></li>   (si user.email es distinto de null, lo muestra)
+o <li th:if="${user.email}" th:text="${user.email}"></li>                               
+-thymeleaf: "${}" indica contexto java
+-thymealeaf: <li th:if="${user.email == null}" th:text="${'no tiene email'}"></li> si se cumple la condicion, muestra ese texto por defecto
+-thymeleaf: <li th:if="${user.email}" th:text="${user.email}"></li>
+            <li th:if="${user.email == null}" th:text="${'no tiene email'}"></li>    seria una estructura if...else  se puede usar if-unless tambien
+-thymeleaf: <tr th:each="user: ${users}">
+                <td th:text="${user.name}"></td>
+                <td th:text="${user.lastname}"></td>
+                <td th:text="${user.email}"></td>
+            </tr>                                           ejemplo de uso de each para iterar listas
+
+
+- public User(String name, String lastname, String email) {
+        this(name, lastname);
+        this.email = email;
+    }
+
+    public User(String name, String lastname) {
+        this.name = name;
+        this.lastname = lastname;
+    }                                      sobrecarga de constructores, el this(name,lastname) llama a otro constructor de la misma clase que contenga esos parametros en su firma, parecido a lo que se hace cuando se llama a una clase padre con super(arg1, arg2,..., argn); el orden del so constructores no importa
+
+-conviene agregar tambien un constructor vacio para que el compilador no se queje si no pasamos argumentos cuando hacemos un new y porque algunos frameworks lo requieren para hacer reflexion o instanciar clases por detras
+
+-no sabes cuantos argumentos va a recibir el constructor o metodo? usas varargs (tres puntos en la definicion del parametro, luego de su tipo: Tipo... nombre_argumento), solo peude haber uno por firma y va al final
+ejemplo:    public class Grupo {
+    private List<String> integrantes;
+
+    public Grupo(String... nombres) {
+        this.integrantes = Arrays.asList(nombres);
+    }
+}
+
+- @ModelAttribute: antes de un método para definir atributos globales que pueden ser usados por distintas plantillas que maneja el controlador, también se puede usar antes del parámetro de un método
+
+- @RequestParam: vincula un parámetro de un método a un param query, por defecto es requerido (se puede cambiar con required = false) y se puede dar un valor por defecto con defaultValue (implicitamente pasa required a false si usamos este ultimo parametro), name cambia el nombre del query, pero por convención el query param se debería llamar igual que el parámetro del metodo:
+ public ParamDto foo(@RequestParam(defaultValue = "Hola", name = mensaje) String message) {...
+
+
+--HttpServletRequest es el objeto que extrae los parámetros y todo lo relacionado con la request (cabeceras, sesiones, etc.)
+
+ParamMixDto params = new ParamMixDto();
+        params.setCode(Integer.parseInt(request.getParameter("code")));
+        params.setMessage(request.getParameter("message"));
+
+si no pasamos el code en la query da error porque no puede parsear nulo a integer, si en el code se pasa un string, también da error, porque parseInt convierte de int a Integer
+
+	 @GetMapping("/request")
+    public ParamMixDto request(HttpServletRequest request) {
+        Integer code = 10;
+        try {
+            code = Integer.parseInt(request.getParameter("code"));
+        } catch (NumberFormatException e) {
+
+        }
+
+        ParamMixDto params = new ParamMixDto();
+        params.setCode(code);
+        params.setMessage(request.getParameter("message"));
+
+        return params;
+    }
+
+asi podemos salvar el posible error y crear un valor por defecto; forma mas artesanal en vez de usar @RequestParam; con @RequestParam mas adelante vamos a ver formas de salvar estos errores de tipo
+
+@PathVariable: vincula un parámetro del método a una variable de la URI, se puede usar name atmbien para cambiar el nombre de la variable (y que no coincida con el del parámetro, pero sigue siendo convención que coincidan)
+
+@GetMapping("/baz/{message}")
+    public ParamDto baz(@PathVariable String message) {
+
+        ParamDto param = new ParamDto();
+        param.setMessage(message);
+
+        return param;
+    }
+
+- @RequestBody: siempre que coincidan los datos recibidos con los atributos de una clase, van a matchear; la clase debe tener un constructor vacio y métodos set para que el objeto se pueda poblar
+
+public User create(@RequestBody User user) {
+
+        return user;
+        
+    }
+
+- @JsonInclude(JsonInclude.Include.NON_NULL) en la clase si quiero que Jackson no incluya elementos nulos en el json al devolver la respuesta, cuanod se usa @ResquestBody
+
+- @Value: anotación para inyectar valores desde archivos de configuracion externos a propiedades de clase o parámetros de metodo
+
+@Value("${config.username}")
+    private String username;
+
+public Map<String, Object> values(@Value("${config.mensaje}") String mensaje) {...
+
+-  @SpringBootApplication
+   @PropertySource("classpath:values.properties")
+   public class SpringbootWebApplication {...
+   
+   @PropertySource: le indica a Spring que cargue un archivo adicional de propiedades (en este caso, values.properties) y lo agregue al ambiente (Environment) de la aplicación (dentro de la carpeta Resources, y se puede usar @PropertySources para agregar mas de uno.
+
+  @SpringBootApplication
+@PropertySources({
+		@PropertySource("classpath:values.properties"),
+})
+public class SpringbootWebApplication {
+
+Otra forma es crear una clase de configuración aparte en la carpeta raíz de la app (hermana de SpringBootWebApplication, con la anotación @Configuration, asi no ensuciamos nuestra clase principal de Spring Boot
+Ejemplo con clase ValuesConfig:
+@Configuration
+@PropertySources({
+        @PropertySource("classpath:values.properties"),
+})
+public class ValuesConfig {
+
+}
+
+- cambiar la propiedad encoding si se rompen los caracteres:  @PropertySource(value = "classpath:values.properties", encoding = "UTF-8")
+también se puede cambiar desde vscode, apretando UTF-8 (Select Encoding) en el panel inferior y cambiando a ISO 8859 1, pero no es tan estándar y es mas rebuscado
+
+-Las SpEL empiezan con # y sirven para evaluar valores dinámicamente dentro de anotaciones, propiedades, plantillas y más.
+@Value("#{ '${config.listOfValues}'.split(',')}")
+    private List<String> valueList;
+
+@Value("#{'${config.listOfValues}'.toUpperCase()}")
+    private String valueString;
+
+- @Value("#{${config.valuesMap}}")
+    private Map<String, Object> valuesMap;   se usa la SpEL para poder evaluarlo como un map, objeto java, si no, se estaría trabajando con un string crudo; entonces, si solo se quieren inyectar valores escalares como int o String, no se usa SpEL; pero para ineyctar estructuras como Map o List, sí se usa
+
+- Otra forma de inyectar es con la clase de Spring Environment: "@Autowired
+    private Environment environment;" "json.put("message2", environment.getProperty("config.mensaje"));"
+
+Spring te inyecta automáticamente un objeto de tipo Environment, que es parte del core de Spring y representa el entorno de ejecución de tu aplicación.
+Este objeto:
+Tiene acceso a todas las propiedades definidas en:
+application.properties
+application.yml
+archivos adicionales (@PropertySource, perfiles, variables de entorno, etc.)
+Te permite acceder a propiedades como si estuvieras usando @Value, pero de forma más programática.
+el getProperty() devuelve por defecto todo como string
+"json.put("code2", Integer.valueOf(environment.getProperty("config.code")));" asi lo casteamos a entero
+"json.put("code2", environment.getProperty("config.code", Long.class));"; o asi, porque getProperty tiene sobrecarga de método
+"Long code2 = environment.getProperty("config.code", Long.class);
+json.put("code2", code2);"
+
+
+-  @GetMapping({"", "/", "/home"})   se puede indicar varias rutas para ese get
+
+- redirect: @GetMapping({"", "/", "/home"})
+             public String home() {
+              return "redirect:/list";
+              // return "forward:/list";
+            }                                   para redirigir a otra ruta existente en el proeycto, genera un neuvo request, reinicia la ruta y refresca el navegador
+caso de uso: guardar una producto y redirigir al listado completo con el nuevo producto en el
+
+- forward: se mantiene dentro de la misma petición, no se pierden los parámetros del request ni cambia la ruta, no hace un refresh;
+dentro del mismo request, despacha a otro método handler
+
+- deploy con consola: ./mvnw.cmd install: se usa cuando tenemos librerias o clases que querramos reutilizar en otros proyectos; si no, con usar package en vez de isntall, alcanza   (usar la palabra clean antes de install o package para limpiar el proeycto, evitar errores por archivos compilados viejos que quedaron en /target)
+- luego, dentro de la carpeta target, con el comando java -jar (archivo jar, el que no dice original) levantamos el proyecto (asi hacemos un deploy, clave para produccion, ej.:  podemos isntalar el jdk en una instancia de EC2 en AWS y subir nuestro proyyecto)
+- tambien se puede hacer el deploy de forma mas sencilla en vscode desde la pestaña maven en el panel derecho, en lifecycle (correr clean, luego package)
+- si despeus de hacer un clean, da error al levantar el proyecto desde el spring dashboard, con un reload en la pestaña maven y se soluciona
+- enlaces en thymeleaf: <a th:href="@{/list}">ver listado</a>       se usa @ que es para enlaces, $ es para objetos
+para concatenar con ariables <a th:href="@{'/api/param/foo?message=' + ${title}}">ver mensaje</a>
+<a th:href="@{/api/param/foo?message=Hola que tal festival}">ver mensaje2</a>
+<a th:href="@{/api/param/foo(message='Hola que tal festival')}">ver mensaje3</a> forma propia de thymeleaf
+<a th:href="@{/api/param/bar(text='Hola que tal festival', code=32332)}">ver mensaje4</a> con varios request params, si hay un objeto se usa el $
+<a th:href="@{/api/var/baz/Hola algun mensaje}">ver mensaje5</a> para path variable
+<a th:href="@{'/api/var/baz/' + ${title}}">ver mensaje6</a>
+
+
+
+
+
+- di: dependency injection; librerias: Spring Web, Devtools, Actuator,
+- constructor vacio: en caso de que queramos hacer el new sin parámetros y pasar los datos con el set
+- al final de un valro de tipo Long se agrega "L"
+- "return data.stream().filter(p -> p.getId().equals(id)).findFirst().orElse(null);" un stream, secuencia de elementos procesados de forma declarativa
+- repository es la capa de acceso a datos (bdd, arraylist, json, datos de otra api) y service es la capa de lógica de negocio
+
+    List<Product> findAll() {
+        return repository.findAll().stream().map(p -> {
+            Double priceImp = p.getPrice() * 1.25d;
+            p.setPrice(priceImp.longValue());          //trabajamos con double xq es un decimal, pero volvemos a long porque es el tipo del precio
+            return p;
+        }).collect(Collectors.toList());     //transformar de nuevo a lista porque es un stream
+    }
+
+- no es recomendable usar el repository en el controlador, porque en el repository solo guardamos, leemos y obtenemos datos; en el controlador se puede realizar algunas manipulaciones de datos, pero no es función del controlador ensuciarse y acoplarse con tanta lógica de negocio
+
+-  @RestController
+@RequestMapping("/api")
+public class SomeController {
+
+    private ProductService productService = new ProductService();
+
+    @GetMapping
+    public List<Product> list() {
+
+        return productService.findAll();
+
+
+    }
+
+    @GetMapping("/{id}")
+    public Product show(@PathVariable Long id) {
+
+        return productService.findById(id);
+    }
+
+}
+
+
+-hacer las modificaciones en una copia del objeto para no modificar el original y violar el principio de inmutabilidad
+public List<Product> findAll() {
+        return repository.findAll().stream().map(p -> {
+            Double priceImp = p.getPrice() * 1.25d;   // trabajamos con double xq es un decimal, pero volvemos a long porque es el tipo del precio
+            Product newProduct = new Product(p.getId(), p.getName(), priceImp.longValue());
+            //p.setPrice(priceImp.longValue()); asi no porque si no modificamos el precio original, violando el principio de inmutabilidad
+            return newProduct;
+        }).collect(Collectors.toList()); // transformar de nuevo a lista porque es un stream
+    }
+aclarar que esto ocurre porque estamos trabajando con el repositorio en memoria, en una bdd los datos se traen y no se cambian hasta que se haga el update en ella
+
+- una forma mas elegante de evitar este problema es implementando la interfaz Cloneable en la clase del repositorio (hay que sobreescribir el método lone()
+
+  @Override
+    protected Object clone() {         // cambiar el protected por public
+        try {
+            return super.clone();
+        } catch (CloneNotSupportedException e) {
+            return new Product(id, name, price); //se puede hacer new Product(this.getId(), this.getName(), this.getPrice()) o sin el this, porque ajva asume que llamas al metodo del objeto actual; la forma con los getters es util si tienen lógica interna
+        }
+    }                                              asi si ocurre un error, se retorna igualmente una nueva instancia con los mismos datos (crear una copia manual si falla el clonado automático)
+forma correcta con clone(): 
+public List<Product> findAll() {
+        return repository.findAll().stream().map(p -> {
+            Double priceTax = p.getPrice() * 1.25d;
+            Product newProd = (Product) p.clone();
+            newProd.setPrice(priceTax.longValue()); // casteamos porque clone() devuelve un Object
+            return newProd;
+        }).collect(Collectors.toList()); // transformar de nuevo a lista porque es un stream
+    }
+
+- Al crear una interface, se puede ponerle una I delante del nombre, o cambiar el de la implementacion con el sufijo Impl, o con el de implementaciones concretas como JPA, JDC, API, Json, Array, List
+
+- En los metodos de las interfaces no se especifican los modificadores de acceso porque por defecto son public
+
+- El @Override sobre los metodos implementados de la interfaz no es obligatorio
+
+- Los beans deben tener un constructor vacio, excepto que se inyecte con autowired mediante constructor
+
+- Un bean permite crear objetos y registrarlos en el contenedor, pero mediante métodos
+
+- Una clase anotada con el nombre Configuration indica que puede ser utilizada como una fuente de definiciones de beans por el contenedor de spring, va a tener una serie de métodos anotados con bean y t odo objeto que retornen se guardaran como componentes
+
+    @Autowired
+    private ProductRepositoryImpl repository;
+    // private ProductRepositoryImpl repository = new ProductRepositoryImpl(); como
+    // estamos trabajando con inyeccion de dependencias, no es necesario crearlo
+    // nosotros con el new, sino que el contenedor de Spring provee el objeto
+
+- Vamos a ver como implementarlo con interfaces para desacoplar las implementaciones, asi si el dia de mañana queremos cambiar la persistencia, solo hay que cambiar una linea de código.
+
+ @Autowired
+  private ProductRepository repository;  usamos el identificador mas abstracto, mas genérico, en este caso la interfaz
+					después veremos como hacer si tenemos mas de una implemetnacion, para elegir la deseada
+
+- @Service y @Repository son estereotipos semanticos de @Component (aunque @Repository se encarga asimismo de traducir la excepciones de bdd para que sean mas amistosas
+
+ // @Autowired
+    // public void setRepository(ProductRepository repository) {
+    // this.repository = repository;
+    // } //se puede usar el setter con el autowired también
+
+// public ProductServiceImpl(ProductRepository repository) {
+    //     this.repository = repository;
+    // }        //con el constructor el Autowired es innecesario indicarlo
+
+-Con @Primary elijo cual de las implementaciones de una interfaz se usara por defecto
+@Primary
+@Repository
+public class ProductRepositoryImpl implements ProductRepository {...
+
+-Puedo usar tambien @Qualifier("nombreDeLaImpl") cuando quiero especificar qué implementación usar al inyectar una dependencia:
+public ProductServiceImpl(@Qualifier("productRepositoryImpl") ProductRepository repository) {
+        this.repository = repository;
+    } // con el constructor el Autowired es innecesario indicarlo
+
+-En @Repository puedo cambiar el nombre lógico de la clase:    @Repository("otroRep")
+
+-   @Autowired
+    @Qualifier("productFoo") 
+    private ProductRepository repository;       si queremos elegir una implementacion y estamos inyectando por atributo o por setter
+
+- Si vamos a modificar los atributos del objeto original en una petición, podemos usar @RequestScope en la clase del repositorio para que su contexto sea la petición y no se mute este objeto (queda mutable por request pero inmutable para efectos de la aplicación)
+No obstante, lo ideal continua siendo que se genere una copia del objeto al aplicar la lógica de negocio y el original se mantenga inmutable
+
+- @SessionScope // para que cada sesión tenga su propia instancia
+
+-  @Configuration
+  @PropertySource("classpath:config.properties")
+  public class AppConfig {
+
+      @Bean("productJson")
+      ProductRepository productRepositoryJson() {
+          return new ProductRepositoryJson();
+      }
+
+  }
+puedo usar los @Bean para registrar objetos en el contenedor desde un archivo de configuración a traves de métodos que devuelven instancias listas para inyectar (el public es innecesario)
+
+-Clase para abrir archivo:
+
+private List<Product> list;
+
+public ProductRepositoryJson() {
+        Resource resource = new ClassPathResource("json/products.json");
+        ObjectMapper objectMapper = new ObjectMapper();
+        try {
+            list = Arrays.asList(objectMapper.readValue(resource.getFile(), Product[].class));  //getInputStream() es lo mismo
+        } catch (StreamReadException e) {
+            e.printStackTrace();
+        } catch (DatabindException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();                
+        }
+    }
+Interfaz Resource para obtener recursos, ObjectMapper para convertir a objeto, con los métodos para obtener y leer los valores que iran en la lista ; recomienda encerrar todo en un try-catch para distintos errores que puedan surgir (de lectura, de mapeo y de existencia de archivo); puedo dejar tambien solo el IOException
+
+- @Value para traer el json dentro de ProductRepositoryJson no sirve porque esa clase no es un componente de Spring. Podemos hacer el @Value en el archivo de configuracion y pasarselo a la clase por el metodo Bean. Tenemos entonces dos constructores en la clase, uno mas declarativo y otro mas programatico:
+
+private List<Product> list;
+
+    public ProductRepositoryJson() { // forma mas programática
+        Resource resource = new ClassPathResource("json/products.json");
+        readValueJson(resource);
+    }
+
+    public ProductRepositoryJson(Resource resource) { // forma mas declarativa
+        readValueJson(resource);
+    }
+
+    private void readValueJson(Resource resource) {
+        ObjectMapper objectMapper = new ObjectMapper();
+        try {
+            list = Arrays.asList(objectMapper.readValue(resource.getFile(), Product[].class));
+            // } catch (StreamReadException e) { //getInputStream() tambien funciona
+            // e.printStackTrace();
+            // } catch (DatabindException e) {
+            // e.printStackTrace(); // con IOException esta bien
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+- Repaso de diagramado y diseño:   --Ver qué relaciones entre las clases nos interesan (entre cliente y factura, no me importa saber qué facturas tiene un cliente, entonces no es necesario un array de facturas en cliente; pero sí me interesa saber de qué cliente es una factura, entonces la factura conoce a cliente y lo tiene como atributo).
+                                   --En los diagramas, la flecha direccionada va cuando uno se pregunta si una clase conoce a la otra
+                                   --En el modelo relacional, al convertir DER a tablas, en una relación 1-M, se pone la clave foránea de la entidad madre en la entidad hija (la entidad hija es la que esta del lado de las patas de cuervo).
+                                   --Cuando armo las relaciones, tanto en el modelo de dominio como el relacional, para establecer las cardinalidades en una relación, me paro una vez en cada elemento y me pregunto "este elemento tiene (o el verbo que sea) uno o varios del otro"
+                                   --Item conoce a Product, pero no al reves; en el modelo de dominio Item tiene una asociación dirigida hacia Product y en el modelo relacional, Item tiene la clave foránea de Product (los atributos de Item son product y quantity, y de Product, name y price), porque seria también una relación 1:M (un producto puede estar en varios items, un item tiene un solo producto
+
+
+-No siempre un componente tiene que ser un servicio, controlador o repositorio, a veces puede ser otra clase, como un POJO (en el ejemplo, Invoice y Client son componentes también, que no necesitan un contrato con una interfaz).
+
+-El componente no va a ser Item sino List<Item>, pero no podemos anotar a List<Item> como componente porque en el fondo es una instancia del tipo List. Lo que hacemos es crearla con la anotación @Bean en un método, en una clase configuration. La lista de items que devuelve el método es el componente.
+
+Por qué no podemos hacer @Component sobre List<Item>?
+Porque @Component solo se puede aplicar a clases propias o beans definidos por clases concretas.
+
+List<Item> es una interfaz genérica de Java, no una clase concreta ni algo que Spring pueda detectar automáticamente como un bean.
+
+- Si tengo varios Beans que devuelven un mismo tipo (por ejemplo, List<Item>), tengo que usar Primary en un bean o Qualifier debajo del autowired (para que Spring sepa cual ineyctar. Otra manera es ponerle de nombre "default" al Qualifier, y el mismo nombre al bean que quiera por defecto.
+
+- Por qué aparece getImporte() en el JSON aunque no lo agregaste manualmente?
+Porque Jackson, por defecto, convierte tu objeto Java a JSON siguiendo esta regla:
+
+   --Todos los métodos public cuyo nombre empieza con get y que no toman parámetros
+   --Se consideran propiedades del objeto, y se serializan automáticamente
+
+-Esta bien que getImporte este en el modelo y no en el servicio porque: 
+getImporte() es una lógica de dominio simple, que:
+
+Depende solo del estado interno del objeto
+
+No accede a recursos externos
+
+Representa una propiedad propia del objeto (como decir "el subtotal del ítem")
+
+- @PostConstruct: anotación para un método que se ejecutara después de que las dependencias hayan sido creadas e ineyctadas; por eso, si se realizan acciones con ellas desde el constructor, pueden dar null
+
+public Invoice() {
+        System.out.println("Creando el componente de la factura");
+    } // en este punto las dependencias aún NO fueron inyectadas
+
+    @PostConstruct
+    public void init() {
+        System.out.println("Creando el componente de la factura");
+        client.setName(client.getName().concat("|"));
+        description = description.concat("del cliente: ").concat(client.getName()).concat(" ")
+                .concat(client.getLastname());
+    } // se ejecuta luego de que el bean fue creado e inyectado completamente
+
+- @PreDestroy: se ejecuta antes de destruir el bean
+@PreDestroy
+    public void destroy() {
+        System.out.println("Destruyendo el componente o bean invoice!");
+    } 
+
+- Cuando usás @RequestScope o @SessionScope sobre un componente en Spring, Spring genera un proxy automáticamente. Este proxy representa al bean real, cuya instancia será creada y gestionada por cada request o sesión, según corresponda.
+Esto es necesario porque:
+
+Los beans de tipo request o session no existen fuera de su contexto (petición/sesión)
+
+Pero vos podrías querer inyectarlos en un bean singleton, que existe todo el tiempo
+
+Entonces... ¡Spring necesita una capa intermedia (proxy) que resuelva dinámicamente el bean correcto en el momento justo!
+
+- Si la factura es ResquestScope y el cliente Singleton, Spring inyecta un proxy de factura en cliente, para que pueda mantener el estado por cada cliente.
+Exiten algunso atributos residuales del proxy que hay que ignorar porque si no da error, en factura junto con @ResquestScope poner:
+@JsonIgnoreProperties({"targetSource", "advisors"})
+
+- Guarda porque como cliente es de tipo singleton, cada vez que hagamos una request, si factura genera alguna accion sobre cliente, esta se repetirá y sumara con cada petición (por ejemplo, generando palabras que se repetiran en un string). Esto ocurre también si cliente fue de tipo session, se da cuando en la petición ocurre que un compoenente es de un contexto menor a otro. Entonces cambiamos ambos a ResquestScope para que tengan el mismo contexto.
+
+Entonces: ¿por qué @RequestScope acá?
+Para que:
+--Se cree una nueva factura (Invoice) para cada request
+--El cliente (Client) asociado a esa factura no se comparta entre usuarios
+--Evitar modificaciones no deseadas o "efectos colaterales" entre usuarios
+Regla práctica
+Usá @RequestScope cuando:
+--Mutás datos del bean en cada request
+--No querés que esos datos se compartan entre solicitudes
+--Trabajás con datos "de contexto" (cliente actual, sesión, preferencias)
+
+-@ApplicationScope: contexto en el que varias aplicaciones dentro de Springboot (por ejemplo, tomcat externo) pueden compartir objetos. En Singleton ocurre todo dentro de la misma aplicación.
+
+-Otra forma de solucionar el problema del error por el proxy que genera atributos basura (ocurre también cuando son ambos RequestScope pero no se usa el JsonIgnoreProperties) es crear un objeto real y devolver ese objeto con los datos del objeto proxy:
+
+@GetMapping("/show")
+    public Invoice show() {
+        Invoice i = new Invoice();
+        Client c = new Client();
+        c.setLastname(invoice.getClient().getLastname());
+        c.setName(invoice.getClient().getName());
+        i.setClient(c);
+        i.setDescription(invoice.getDescription());
+        i.setItems(invoice.getItems());
+
+        return i;
+    }
+
+-Tambien se puede usar DTOs
+
+-Hay otro contexto @PrototypeScope que se usa mas en aplicaciones de escritorio o standalone, pero no tanto en apis y REST, que genera una nueva instancia al inyectar y no una referencia compartida por todos los clientes (similar a Request y Session, que serian una especie de prototype también, pero en ámbito web)
+
+- @RestControllerAdvice: los métodos en vez de estar mapeados a una ruta URL, estan mapeados al lanzamiento de una excepción. Se lanza una excepción en algún controlador? Automáticamente se llama al método bajo esta anotación que este mapeado a esa excepción
+
+- ResponseEntity<>: una entidad que va en el cuerpo de una respuesta. En los genéricos va a el contenido que va a tener, puede ser un Map, String, en nuestro caso Error, pero puede ser tambien un ? si no sabemos que va a tener.
+
+- @ExceptionHandler: se especifica la excepción que se va a manejar en el metodo
+
+ @ExceptionHandler({ ArithmeticException.class })
+    public ResponseEntity<?> divisionByZero(Exception ex) {
+
+        return ResponseEntity.internalServerError().body("error 500");
+    }
+Pero ahora vamos a devolver en vez del String, el objeto dto del Error que creamos:
+
+@ExceptionHandler({ ArithmeticException.class })
+    public ResponseEntity<?> divisionByZero(Exception ex) {
+        Error error = new Error();
+        error.setDate(new Date());
+        error.setError("Error división por cero!");
+        error.setMessage(ex.getMessage());
+        error.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
+
+        return ResponseEntity.internalServerError().body(error);
+        // return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR.value()).body(error);
+    }
+
+-En caso de que Spring lance la excepción por defecto en vez de la personalizada al no encontrar un recurso, poner esta linea en appication.properties:
+spring.mvc.throw-exception-if-no-handler-found=true
+y esta también:
+spring.web.resources.add-mappings=false
+Aparentemente en versiones mas nuevas de Spring esto no ocurre porque el error que se encuentra no es NoHanndlerFound, sino una especialización para resursos estáticos: NoResourceFound
+
+- Otra forma de armar el handler de error: 
+ @ExceptionHandler(NumberFormatException.class)
+ @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public Map<String, String> numberFormatException(Exception ex) {
+        Map<String, String> error = new HashMap<>();
+        error.put("date", new Date().toString());
+        error.put("error", "Número inválido o incorrecto, no tiene formato de dígito!");
+        error.put("message", ex.getMessage());
+        error.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value() + ""); 
+        //la concatenacion es para convertir el objeto a string
+	//o poner el valor de tipo Object en la definición del Map
+
+- No usar == para la comparación de objetos porque se compara por referencia, no por valores
+  Long es una clase objeto, no un tipo primitivo (long)
+  La pregunta es: ¿Apuntan a la misma ubicación en memoria?
+  Y no: ¿Tienen el mismo valor?
+  La forma correcta de comparar es con el método equals()
+
+ @Override
+    public User findById(Long id) {
+        User user = null;
+        for (User u : users) {
+            if (u.getId().equals(id)) {
+                user = u;
+                break;
+            }
+        }
+    }
+
+    }
+
+
+- UserNotFoundException: es convención el sufijo Exception cuando se crean excepciones personalizadas. Tienen que extender de la clase Exception o RuntimeException. Esta ultima no obliga a usar try-catch
+
+- En la carpeta exceptions se definen las excepciones personalizadas, que extienden de RuntimeException. Luego, en la clase ExceptionHandlerController (anotada con @RestControllerAdvice), se crean los métodos con @ExceptionHandler encargados de capturar esas excepciones y responder con una estructura de error personalizada, normalmente en formato JSON.
+
+
+- // @GetMapping("/show/{id}")
+    // public User show(@PathVariable(name = "id") Long id) {
+
+    // return service.findById(id);
+    // }
+    // devuelve 200 si es nulo
+
+    @GetMapping("/show/{id}")
+    public User show(@PathVariable(name = "id") Long id) {
+        User user = service.findById(id);
+        if (user == null) {
+            throw new UserNotFoundException("Error el usuario no existe!");
+        }
+        System.out.println(user.getLastname());
+        return user;
+    }
+
+Cuando usamos un Optional:
+
+ @GetMapping("/show/{id}")
+    public User show(@PathVariable(name = "id") Long id) {
+        User user = service.findById(id).orElseThrow(() -> new UserNotFoundException("Error el usuario no existe!"));
+        System.out.println(user.getLastname());
+        return user;
+    }
+
+Otra forma: 
+ @GetMapping("/show/{id}")
+     public ResponseEntity<?> show(@PathVariable(name = "id") Long id) {
+     Optional<User> optionalUser = service.findById(id);
+     if (optionalUser.isEmpty()) {
+     return ResponseEntity.notFound().build();
+     }
+
+     return ResponseEntity.ok(optionalUser.orElseThrow());
+     }
+     otra forma, devuelve 404
+
+Con Optional, método en el service:
+ public Optional<User> findById(Long id) {
+        User user = null;
+        for (User u : users) {
+            if (u.getId().equals(id)) {
+                user = u;
+                break;
+            }
+        }
+        // no usar == para la comparación porque compara por referencia, no por valores
+        // Long es una clase objeto, no un tipo primitivo (long)
+        // la pregunta que hace == es: ¿Apuntan a la misma ubicación en memoria?
+        // y no: ¿Tienen el mismo valor? para eso esta equals()
+        return Optional.ofNullable(user); // si no encuentra el usuario, devuelve un Optional.empty() (en vez de null)
+
+Mas compacto, con flujo:
+@Override
+    public Optional<User> findById(Long id) {
+        return users.stream().filter(u -> u.getId().equals(id)).findFirst();
+    }
+
+Mas allá de que capture el error o no, en el primer método estoy devolviendo simplemente un null, por eso la respuesta tiene status 200; pero en el segundo, estoy tratando de acceder en el sout a un atributo de algo que es null, que no existe, por eso ahi sí tira error NPE.
+
+-El profe dice que es mejor asociar excepciones al controlador y no al service, pero hay otros que prefieren al reves, y ambas formas son correctas. ChatGPT valida al profe:
+
+El servicio (@Service) representa la lógica de negocio pura: trabaja con datos, reglas, validaciones internas...
+No debería saber ni preocuparse por:
+--Qué tipo de status HTTP devolver
+--Qué tipo de error mostrar al usuario final
+Ese rol le corresponde al controlador (@RestController).
+¿Qué pasaría si lanza la excepción directamente el service?
+Posibles problemas:
+--El servicio estaría acoplado a la capa web (sabrá que existe un UserNotFoundException)
+--Lo hace menos reutilizable si mañana querés usarlo en otra app (por ejemplo, consola o escritorio)
+--Te limita si querés aplicar otras políticas de manejo de errores por capa
+Pero hay excepciones
+Si la excepción es 100% lógica de negocio, como por ejemplo:
+--SaldoInsuficienteException
+--StockNoDisponibleException
+En esos casos sí está bien que la lance el service, porque representa una regla de negocio rota, no una falla técnica o HTTP.
+
+- Un interceptor es un fragmento de código reutilizable que intercepta un método del controlador para agregar funcionalidad antes o después. Implementan la interfaz HandlerInterceptor. Define tres métodos default o con implementación por defecto (prehandle, posthandle, aftercompletion), lo cual permite que las clases que la implementen no estén obligadas a sobrescribir esos métodos, salvo que necesiten hacerlo.
+
+En la clase de configuracion en la raiz:
+@Configuration
+public class MvcConfig implements WebMvcConfigurer {
+
+    @Autowired
+    @Qualifier("timeInterceptor")
+    private HandlerInterceptor timeInterceptor;
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(timeInterceptor);
+    }
+
+} 
+De esta forma: "registry.addInterceptor(timeInterceptor);", el interceptor se aplica a todas las rutas, pero si queremos que se aplique solo a algunas, encadenamos el metodo addPathPatterns, o excludePathPatterns para excluir
+registry.addInterceptor(timeInterceptor).addPathPatterns("/app/**"); 
+Los asteriscos indican todas las rutas a partir de la ruta base precedente.
+
+- Si queremos personalizar el mensaje según el método del controlador que se está ejecutando, casteamos el handler de tipo Object a HandLerMethod y llamamos a los métodos reflexivos. También agregamos tiempo transcurrido:
+
+@SuppressWarnings("null")
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
+            throws Exception {
+        HandlerMethod controller = (HandlerMethod) handler;
+        logger.info("LoadingTimeInterceptor: preHandle() entrando ...." + controller.getMethod().getName());
+        return true;
+    }
+Alternativa mas directa:
+..."LoadingTimeInterceptor: postHandle() saliendo ...." + ((HandlerMethod) handler).getMethod().getName());...
+
+
+@SuppressWarnings("null")
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
+            throws Exception {
+        HandlerMethod controller = (HandlerMethod) handler;
+        logger.info("LoadingTimeInterceptor: preHandle() entrando ...." + controller.getMethod().getName());
+
+        long start = System.currentTimeMillis();
+        request.setAttribute("start", start);
+
+        Random random = new Random();
+        int delay = random.nextInt(500);
+        Thread.sleep(delay); // para simular un retraso despues de la petición
+        return true;
+    }
+
+    @SuppressWarnings("null")
+    @Override
+    public void postHandle(HttpServletRequest request, HttpServletResponse response, Object handler,
+            ModelAndView modelAndView) throws Exception {
+        long end = System.currentTimeMillis();
+        long start = (Long) request.getAttribute("start");
+        long result = end - start;
+
+        logger.info("Tiempo transcurrido: " + result + " milsegundos!");
+        logger.info(
+                "LoadingTimeInterceptor: postHandle() saliendo ...." + ((HandlerMethod) handler).getMethod().getName());
+
+    }
+
+Cuando retorno false en el preHandle, corto con el stack de interceptores y con la respuesta del controaldor. Puedo armar una respuesta en ese mismo preHandle para devolver:
+
+@SuppressWarnings("null")
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
+            throws Exception {
+        HandlerMethod controller = (HandlerMethod) handler;
+        logger.info("LoadingTimeInterceptor: preHandle() entrando ...." + controller.getMethod().getName());
+
+        long start = System.currentTimeMillis();
+        request.setAttribute("start", start);
+
+        Random random = new Random();
+        int delay = random.nextInt(500);
+        Thread.sleep(delay); // para simular un retraso despues de la petición
+
+        Map<String, String> json = new HashMap<>();
+        json.put("error", "no tienes acceso a esta página!");
+        json.put("date", new Date().toString());
+
+        ObjectMapper mapper = new ObjectMapper();
+        String jsonString = mapper.writeValueAsString(json);
+        response.setContentType("application/json");
+        response.setStatus(401);
+        response.getWriter().write(jsonString);
+        return false;
+        // return true;
+    }
+
+El atributo request viene del preHandle():
+
+ @GetMapping("/foo")
+    public ResponseEntity<?> foo(HttpServletRequest request) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("title", "Bienvenidos al sistema de atención!");
+        data.put("date", new Date());
+        data.put("message", request.getAttribute("message"));
+        return ResponseEntity.ok(data);
+    }
+
+Asi estoy manejando as horas:
+Calendar calendar = Calendar.getInstance();
+        int hour = calendar.get(Calendar.HOUR_OF_DAY);
+        System.out.println(hour);
+
+        if (hour >= open && hour < close) {
+            StringBuilder message = new StringBuilder("Bienvenidos al horario de atención a clientes");
+            message.append(", atendemos desde las ");
+            message.append(open);
+            message.append(" h");
+            message.append(" hasta las ");
+            message.append(close);
+            message.append(" h.");
+            message.append("Gracias por su visita!");
+            request.setAttribute("message", message.toString());
+            return true;
+        }   
+Si tengo que usar minutos también, como 21:30, puedo poner poner la hora con decimal en el application.properties (21.5 para 21:30) y que el atributo enj el interceptor sea de tipo double, en vez de int. O puedo configurar horas y minutos y usar la clase LocalTime:
+properties:
+config.calendar.open.hour=14
+config.calendar.open.minute=0
+config.calendar.close.hour=21
+config.calendar.close.minute=30
+
+clase:
+LocalTime now = LocalTime.now();
+LocalTime openTime = LocalTime.of(openHour, openMinute);
+LocalTime closeTime = LocalTime.of(closeHour, closeMinute);
+
+if (!now.isBefore(openTime) && now.isBefore(closeTime)) {
+    // Está dentro del horario
+}
+
+DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HH:mm");
+message.append(openTime.format(formatter));
+message.append(" h hasta las ");
+message.append(closeTime.format(formatter));
+message.append(" h.");
+
+-Programación Orientada a Aspectos: paradigma de programación que permite una mejor separación de preocupaciones transversales (cross-cutting concerns) en el código. En lugar de modularizar el código basado en funcionalidades específicas (como en la programación orientada a objetos), la POA se enfoca en separar el código que afecta a múltiples partes del sistema y que no esta relacionado directamente con la lógica de negocio, como la seguridad, el registro de eventos, la autenticación o el manejo de transacciones. Se evita la repetición y acoplamiento del código. Es similar al uso de interceptores, nada más que no se circunscribe solamente a resquests.
+--Join point (punto de cruce o unión): representa la invocación de un método o manejo de excepciones
+--Advice: método que se ejecuta cerca de la ejecución del join point (antes, después, alrededor).
+--Pointcuts: agrupación de uno o mas join points que indican donde se aplicara el advice, suele estar definido por expresiones regulares (ejemplo, que los advices se ejecuten en determinado package, en joint points que contengan la palabra service)
+
+-Para que funcione AOP hay que agregar una dependencia al pom:
+			<dependency>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-starter-aop</artifactId>
+			</dependency>
+Y agregar la anotación: @EnableAspectJAutoProxy en la clase principal (en las ultimas versiones de Spring puede que no sea necesario).
+
+-Ejemplo de advice before en un join point:
+
+@Aspect
+@Component
+public class GreetingAspect {
+
+    private Logger logger = LoggerFactory.getLogger(this.getClass());
+
+    @Before("execution(String com.santi.curso.springboot.app.aop.springboot_aop.services.GreetingService.sayHello(..))")
+    public void loggerBefore(JoinPoint joinPoint) {
+
+        String method = joinPoint.getSignature().getName();
+        String args = Arrays.toString(joinPoint.getArgs());
+        logger.info("Antes: " + method + " con los argumentos " + args);
+    }
+}
+
+"execution(String com.santi.curso.springboot.app.aop.springboot_aop.services.GreetingService.sayHello(..))" se peude poner un "*" en vez de String para que funcione con todos los tipso de retorno. Aplica también sustituir el método por el *, o la clase, y asi sirve para cualquiera.
+
+
+- @Before("execution(* com.santi.servicios..*.saludar*(..))")
+Esto se traduce como:
+
+“Interceptá todos los métodos cuyo nombre empiece con saludar,
+en cualquier clase de cualquier subpaquete dentro de com.santi.servicios,
+sin importar qué tipo devuelven ni cuántos parámetros reciben.”
+
+Los dos puntos se usan como comodín múltiple: "Cualquier cosa, de cualquier longitud"
+El asterisco se usa como comodín simple: "Cualquier cosa, pero en una sola posición"
+
+Advice con around:
+@Around("execution(String com.santi.curso.springboot.app.aop.springboot_aop.services.*.*(..))")
+    public Object loggerAround(ProceedingJoinPoint joinPoint) throws Throwable {
+
+        String method = joinPoint.getSignature().getName();
+        String args = Arrays.toString(joinPoint.getArgs());
+
+        Object result = null;
+
+        try {
+            logger.info("El método " + method + "() con los parámetros: " + args);
+            result = joinPoint.proceed();
+            logger.info("El método " + method + "() retorna el resultado: " + args);
+            return result;
+        } catch (Throwable e) {
+            logger.error("Error en la llamada del método: " + method + "()");
+            throw e;
+        }
+
+-@Order(//numero): para establecer orden de clases de aspectos (ordena por tipo de punto de corte, pero tener en cuenta que un aspecto con mas prioridad es el primero en entrar y el ULTIMO en salir)
+
+-@Pointcut: para reutilizar un punto de corte
+	@Pointcut("execution(String com.santi.curso.springboot.app.aop.springboot_aop.services.GreetingService.*(..))")
+    		public void greetingLoggerPointcut() {}
+
+   	@Before("greetingLoggerPointcut()")...
+
+-Se pueden agrupar también en una clase aparte, y luego en la anotación de los advices de los aspectos se especifica la clase con el método (si están en el mismo package)
