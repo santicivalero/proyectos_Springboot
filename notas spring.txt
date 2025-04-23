@@ -829,3 +829,64 @@ Advice con around:
    	@Before("greetingLoggerPointcut()")...
 
 -Se pueden agrupar también en una clase aparte, y luego en la anotación de los advices de los aspectos se especifica la clase con el método (si están en el mismo package)
+
+- Hibernate es un framework de ORM. JPA es un estándar de persistencia, una API que contiene los contratos que debe implementar un proveedor, siendo Hibernate uno de ellos. Entonces Hibernate es una especificación para la API de persistencia de Java. Trabaja con objetos que están mapeados a tablas SQL, crea una base de datos orientada a objetos virtual, sobre la base de datos relacional.
+
+- Las tablas se relacionan mediante llaves foráneas; en los objetos mapeados es mediante atributos, relaciones entre ellos y la anotación que corresponde a esa relación (manytoone, onetomany, etc.).
+
+-Spring Data JPA integra Hibernate a Spring.
+
+-Para las consultas en Spring Data JPA se puede hacer mediante el nombre del método con palabras clave o con la definición de la consulta HQL o JPQL en una anotacion @Query. Tambien se puede con SQL nativo.
+
+-Entity: clase POJO que esta mapeada a uan tabla de BDD.
+
+-Se implementa CommandLineRunner para…
+--Ejecutar lógica justo después de que Spring arranca
+--Acceder a beans ya inicializados
+--Inyectar datos o probar funcionalidades iniciales
+
+void run(String... args) throws Exception;
+Cuando se implementa esta interfaz en la clase (generalmente en la clase principal con @SpringBootApplication), Spring ejecuta ese método una vez al arrancar la aplicación.
+
+Y los argumentos args?
+Son los argumentos pasados por línea de comandos al ejecutar el programa. Por ejemplo:
+java -jar miapp.jar arg1 arg2
+
+-Si no hay un @RestController, ni endpoints web, ni configuración para mantener el contexto vivo (como un servidor web embebido), la aplicación se apaga al terminar run().
+
+-@Entity
+@Table(name = "persons") // por defecto se usa el nombre de la clase
+public class Person {
+
+}
+
+-Lo mismo pasa con los atributos, si se llaman igual que en la tabla no hace falta explicitar. Salvo que sean palabras compuestas, porque en BDD por convención se separa con guion bajo, no con camelCase:
+@Column(name = "programming_language")
+    private String programmingLanguage;
+
+-En una clase Entity, si tenemos un cosntructor personalizado con parámetros, estamos obligados siempre a explicitar un constructor vacio.
+
+-Anotaciones para la clave primaria:
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+GeneratedValue indica como se va a crear la llave. Para MySQL y SQLServer se suele usar IDENTITY, que es autoincremental (también en Postgre); SEQUENCE se usa mucho en Postgre y Oracle (implica crear una secuencia en la tabla para generar los IDs); AUTO para detectar de forma automática, pero no siempre funciona bien
+
+-En Jpa, las interfaces de repositorio que uno crea pueden heredar de otros repositorios como CrudRepository o JpaRepository. La clase no lleva anotacion, ya viene implicita al extender.
+
+-Configuraion de Jpa en application.properties:
+spring.application.name=springboot-jpa
+spring.datasource.url=jdbc:mysql://localhost:3306/db_springboot
+spring.datasource.username=root
+spring.datasource.password=12345678
+spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
+spring.jpa.database-platform=org.hibernate.dialect.MySQLDialect
+spring.jpa.show-sql=true
+spring.jpa.hibernate.ddl-auto=create       //para que se creen las tablas automaticamente a partir de los entities, pero solo para desarrollo, no producción; cada vez que levantamos el servidor, elimina todas las tablas con el mismo nombre que las entities antes de crearlas; Hibernate tambien puebla las filas si hay algun archivo import.sql en resources
+
+spring.jpa.hibernate.ddl-auto=update //asi solo se producen cambios si se cambia el esquema en entity, pero no se ejecuta el import.sql; ojo que tambien puede llegar a ser contraproducente en ambientes de produccion
+
+-Sin toString() personalizado en la calse Entity, se mostraría algo así al imprimir el objeto:
+com.tuapp.models.Person@3fa77460
+O sea, solo muestra el nombre de la clase + el hash del objeto.
