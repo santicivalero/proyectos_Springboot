@@ -852,7 +852,7 @@ Y los argumentos args?
 Son los argumentos pasados por línea de comandos al ejecutar el programa. Por ejemplo:
 java -jar miapp.jar arg1 arg2
 
--Si no hay un @RestController, ni endpoints web, ni configuración para mantener el contexto vivo (como un servidor web embebido), la aplicación se apaga al terminar run().
+-Si no hay un @RestController, ni endpoints web, ni configuración para mantener el contexto vivo (como un servidor web embebido), la aplicación se apaga al terminar run(). Estaríamos "ejecutando" el servidor, en vez de "levantándolo".
 
 -@Entity
 @Table(name = "persons") // por defecto se usa el nombre de la clase
@@ -862,6 +862,7 @@ public class Person {
 
 -Lo mismo pasa con los atributos, si se llaman igual que en la tabla no hace falta explicitar. Salvo que sean palabras compuestas, porque en BDD por convención se separa con guion bajo, no con camelCase:
 @Column(name = "programming_language")
+
     private String programmingLanguage;
 
 -En una clase Entity, si tenemos un cosntructor personalizado con parámetros, estamos obligados siempre a explicitar un constructor vacio.
@@ -882,7 +883,7 @@ spring.datasource.username=root
 spring.datasource.password=12345678
 spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
 spring.jpa.database-platform=org.hibernate.dialect.MySQLDialect
-spring.jpa.show-sql=true
+spring.jpa.show-sql=true   //ver el log de las consultas en la terminal
 spring.jpa.hibernate.ddl-auto=create       //para que se creen las tablas automaticamente a partir de los entities, pero solo para desarrollo, no producción; cada vez que levantamos el servidor, elimina todas las tablas con el mismo nombre que las entities antes de crearlas; Hibernate tambien puebla las filas si hay algun archivo import.sql en resources
 
 spring.jpa.hibernate.ddl-auto=update //asi solo se producen cambios si se cambia el esquema en entity, pero no se ejecuta el import.sql; ojo que tambien puede llegar a ser contraproducente en ambientes de produccion
@@ -890,3 +891,101 @@ spring.jpa.hibernate.ddl-auto=update //asi solo se producen cambios si se cambia
 -Sin toString() personalizado en la calse Entity, se mostraría algo así al imprimir el objeto:
 com.tuapp.models.Person@3fa77460
 O sea, solo muestra el nombre de la clase + el hash del objeto.
+
+- Cuando se hace sobrecarga de métodos, los métodos no pueden tener la misma firma (misma cantidad de argumentos del mismo tipo).
+
+public void findOne() {
+		// Person person = personRepository.findById(1L).orElseThrow();
+		// System.out.println(person);
+
+		// Person person = null;
+		// Optional<Person> optionalPerson = personRepository.findById(1L);
+		// if (optionalPerson.isPresent()) {
+		// person = optionalPerson.get();
+		// }
+		// System.out.println(person);
+
+		// personRepository.findById(1L).ifPresent(person ->
+		// System.out.println(person));
+		personRepository.findById(1L).ifPresent(System.out::println);
+	}
+
+Forma	           ¿Lanza excepción si no hay valor?	         Concisa	Segura
+orElseThrow()	                  Sí	                           Sí	         Solo si estás seguro
+isPresent() + get()	          No	                           No	         Sí
+ifPresent(x -> ...)	          No	                           Sí	         Sí
+ifPresent(System.out::println)	  No	                           Muy	         Sí
+
+:: se llama method reference, y es equivalente, en el ejemplo, a: x -> System.out.println(x)
+
+
+-@Transactional: protege cuando varias operaciones sobre la base (INSERT, UPDATE, DELETE) se ejecutan juntas, que si algo falla en el medio, todo se revierta, y que no quede la base en un estado inconsistente. Todo lo que ocurra dentro de este método se ejecuta dentro de una transacción.
+Si algo falla (una excepción), se hace rollback automáticamente y no se guardan los cambios. Se suele usar en métodos en servicios (@Service). (improtarlo de org.springframework...)
+Para operaciones de solo lectura se escribe @Transactional(readOnly = True).
+
+
+-Para pedir datos por consola y luego guardarlos (create):
+		Scanner scanner = new Scanner(System.in);
+		String name = scanner.next();
+		String lastname = scanner.next();
+		String programmingLanguage = scanner.next();
+		scanner.close();
+
+		Person person = new Person(null, name, lastname, programmingLanguage);
+
+		Person personNew = personRepository.save(person);
+		System.out.println(personNew);
+
+-Para modificar datos (update: buscar el objeto, modificarlo, y como queda en el contexto de persistencia, hibernate hace un update en vez de un insert):
+		if (optionalPerson.isPresent()) {
+			Person person = optionalPerson.get();
+			System.out.println(person);
+			System.out.println("Ingrese el lenguaje de programación:");
+			String programmingLanguage = scanner.next();
+			person.setProgrammingLanguage(programmingLanguage);
+			Person personDb = personRepository.save(person);
+			System.out.println(personDb);
+		} else {
+			System.out.println("No se encontró la persona con id: " + id);
+		}
+
+- Para eliminar tenemos deleteById y delete. En el segundo, el objeto tiene que estar en el contexto de persistencia (trayendolo antes con una consulta).
+
+-Funcion concatenar en las queries: 
+    @Query("select concat(p.name, ' ', p.lastname) as fullname from Person p where p.id=?1")
+    String getFullNameById(Long id);
+
+
+-En JPA se obtiene directamente el registro (o los campos) como un arreglo de objetos, pero en la integración de Spring con JPA se obtiene el objeto y luego se hace el cast a arreglo de objetos 
+
+PersonRepository:
+    		// @Query("select p.id, p.name, p.lastname, p.programmingLanguage from Person p
+    		// where p.id=?1")
+    		// Object obtenerPersonDataById(Long id);
+    		@Query("select p.id, p.name, p.lastname, p.programmingLanguage from Person p where p.id=?1")
+    		Optional<Object> obtenerPersonDataById(Long id);
+
+SpringbootJpaApplication:
+		System.out.println("============== consulta por campos personalizados por el id ==============");
+		// Object[] personReg = (Object[]) personRepository.obtenerPersonDataById(id);
+		// System.out.println("id=" + personReg[0] + ", nombre=" + personReg[1] + ",
+		// apellido=" + personReg[2]
+		// + ", lenguaje=" + personReg[3]);
+		Optional<Object> optionalReg = personRepository.obtenerPersonDataById(id);
+		if (optionalReg.isPresent()) {
+			Object[] personReg = (Object[]) optionalReg.get();
+			System.out.println("id=" + personReg[0] + ", nombre=" + personReg[1] + ", apellido=" + personReg[2]
+					+ ", lenguaje=" + personReg[3]);
+		}
+
+
+-En @Query: 
+
+--"select new ..." se usa cuando no se quiere traer todos los campos, por ejemplo para optimizar rendimiento. Se está indicando explícitamente que se quiere crear instancias de una clase usando un constructor que reciba esos campos específicos. Tiene que exister el constructor en la clase con esa firma.
+
+--También se puede hacer "select new com.tuapp.dto.PersonDTO(...)" si se quiere devolver un DTO en vez de la entidad.
+
+
+- Cuando usamos el operador new y creamos una instancia de un DTO, como la manejamos nosotros y no JPA ni ningun framework, no hace falta tener un constructor vacio.
+
+-La clase Dto no es una clase que se encuentre dentro del contexto de persistencia, como una calse Entity, por lo cual se debe indicar el nombre de la clase completa en la query, es decir, con su package.
