@@ -373,7 +373,7 @@ private List<Product> list;
                                    --En los diagramas, la flecha direccionada va cuando uno se pregunta si una clase conoce a la otra
                                    --En el modelo relacional, al convertir DER a tablas, en una relación 1-M, se pone la clave foránea de la entidad madre en la entidad hija (la entidad hija es la que esta del lado de las patas de cuervo).
                                    --Cuando armo las relaciones, tanto en el modelo de dominio como el relacional, para establecer las cardinalidades en una relación, me paro una vez en cada elemento y me pregunto "este elemento tiene (o el verbo que sea) uno o varios del otro"
-                                   --Item conoce a Product, pero no al reves; en el modelo de dominio Item tiene una asociación dirigida hacia Product y en el modelo relacional, Item tiene la clave foránea de Product (los atributos de Item son product y quantity, y de Product, name y price), porque seria también una relación 1:M (un producto puede estar en varios items, un item tiene un solo producto
+                                   --Item conoce a Product, pero no al reves; en el modelo de dominio Item tiene una asociación dirigida hacia Product y en el modelo relacional, Item tiene la clave foránea de Product (los atributos de Item son product y quantity, y de Product, name y price), porque seria también una relación 1:M (un producto puede estar en varios items, un item tiene un solo producto.
 
 
 -No siempre un componente tiene que ser un servicio, controlador o repositorio, a veces puede ser otra clase, como un POJO (en el ejemplo, Invoice y Client son componentes también, que no necesitan un contrato con una interfaz).
@@ -989,3 +989,634 @@ SpringbootJpaApplication:
 - Cuando usamos el operador new y creamos una instancia de un DTO, como la manejamos nosotros y no JPA ni ningun framework, no hace falta tener un constructor vacio.
 
 -La clase Dto no es una clase que se encuentre dentro del contexto de persistencia, como una calse Entity, por lo cual se debe indicar el nombre de la clase completa en la query, es decir, con su package.
+
+-El @PrePersist en JPA cumple un rol muy parecido a los interceptores o aspectos (@Before, preHandle, etc.), solo que en el contexto del ciclo de vida de las entidades, no de controladores o métodos.
+
+  @PreUpdate
+    public void preUpdate() {
+        System.out.println("evento del ciclo de vida del entity pre-update");
+        this.updatedAt = LocalDateTime.now();
+    }
+
+
+-Un cliente tiene muchas facturas. En Invoice tenemos:
+
+@ManyToOne
+private Client client;
+
+Invoice tendrá la clave foránea de Client
+
+
+-Es normal que la primera vez que ejecutemos el servidor con spring.jpa.hibernate.ddl-auto=create dé un error si Hibernate intenta eliminar una tabla o clave foránea que todavía no fue creada. Recordar que, en bases de datos relacionales, antes de eliminar una tabla que está referenciada por claves foráneas desde otras tablas, deben eliminarse primero esas claves foráneas. Esto evita violaciones de integridad referencial y previene que la base de datos quede en un estado inconsistente.
+
+-@JoinColumn(name="id_cliente")
+ @ManyToOne
+ private Client client;
+
+JoinColumn establece o crea el campo que se usara como clave foránea. Guarda si se cambia cuando ya existe un campo con otro nombre de clave foránea por que puede dar error (con el create del hibernate-ddl por ejemplo, porque va a buscar un campo con un nombre que todavía no existe para eliminar la clave foranea).
+
+-Desde la clase Cliente (recordar que en las anotaciones de relaciones entre entidades, la primera palabra se refiere siempre a la clase donde nos encontramos):
+
+@OneToMany(cascade = { CascadeType.ALL }, orphanRemoval=true)
+private List<Address> addresses = new ArrayList<>;
+
+Significado de cascade:
+Cuando se realice una acción (como persistir, actualizar o eliminar) sobre un objeto Cliente, esa acción también se propagará automáticamente a todos los elementos de la lista addresses. Así se asegura que las entidades relacionadas (Address) se manejen en conjunto con Cliente sin necesidad de tratarlas manualmente una por una.
+
+orphanRemoval = true: automáticamente Hibernate genera un DELETE en la base de datos para eliminar esa dirección que se sacó de la lista.
+Si no tuviera orphanRemoval, la dirección seguiría existiendo en la base aunque ya no esté asociada a ningún cliente (quedaría "huérfana"); así se mantiene más limpia la base.
+
+CascadeType.REMOVE: sirve para eliminar en cascada cuando el padre es borrado.
+
+orphanRemoval = true: sirve para eliminar cuando quitás un hijo del vínculo, sin necesidad de borrar el padre.
+
+No olvidarse de inicializar la lista (o colección) en estas relaciones (con el new).
+Tambien se puede inicializar en el constructor vacio, y ver que los otros constructores lo llamen:
+
+    @OneToMany(cascade = { CascadeType.ALL }, orphanRemoval = true)
+    private List<Address> addresses;
+
+    public Client() {
+        addresses = new ArrayList<>();
+    }
+
+    public Client(String name, String lastname) {
+        this();
+        this.name = name;
+        this.lastname = lastname;
+    }
+
+-La tabla dueña (o propietaria) es la que tiene la clave foránea (FOREIGN KEY) que define la relación. Casi siempre será la "hija" en una relación 1:N (uno a muchos) o N:1 (muchos a uno), porque la "hija" necesita saber quién es su "padre". (Ejemplo: una factura necesita saber a qué cliente pertenece.).
+
+
+-mappedBy se usa en la entidad que NO es la dueña de la relación. El valor de mappedBy es el nombre del atributo en la otra clase que sí es el dueño. ¿Qué pasa sin mappedBy? Hibernate puede generar relaciones o tablas intermedias extra, pero no se "ensucia" una de las tablas de la relación con claves foráneas; queda desacoplada, limpia:
+
+@Entity
+public class Cliente {
+    
+    @OneToMany(mappedBy = "cliente", cascade = CascadeType.ALL)
+    private List<Factura> facturas;
+}
+
+@Entity
+public class Factura {
+
+    @ManyToOne
+    @JoinColumn(name = "cliente_id")
+    private Cliente cliente;  // <-- Este es el atributo al que "mappedBy" hace referencia
+}
+
+
+-Como tenemos la relación en cascada (el all incluye el persist), cuando creemos el cliente, automáticamente se crearan las direcciones, por lo tanto no hace falta guardar las direcciones primero (este es un ejemplo de beneficio de usar un framework, nos automatiza tareas):	
+
+		Client client = new Client("Fran", "Moras");
+
+		Address address1 = new Address("El vergel", 1234);
+		Address address2 = new Address("Vasco de Gama", 9875);
+
+		client.getAddresses().add(address1);
+		client.getAddresses().add(address2);
+
+		clientRepository.save(client);
+
+
+
+-Problema de lazy fetching:
+
+		@Transactional
+		public void oneToManyFindById() {
+
+			Optional<Client> optionalClient = clientRepository.findById(2L);
+			optionalClient.ifPresent(client -> {
+
+			Address address1 = new Address("El vergel", 1234);
+			Address address2 = new Address("Vasco de Gama", 9875);
+	
+			client.getAddresses().add(address1);
+			client.getAddresses().add(address2);
+	
+			clientRepository.save(client);
+	
+			System.out.println(client);
+
+			});
+		}
+
+En una relación @OneToMany, la carga es LAZY por defecto (no carga la lista de direcciones automáticamente cuando buscás el cliente). Cuando se intenta acceder a esa lista (getAddresses()), Hibernate trata de cargar las direcciones recién ahí, pero ya se salió de la sesión de Hibernate (porque findById solo abre/cierra la sesión internamente). LazyInitializationException
+En vez de hacer un get, hacer un set: client.setAddresses(Arrays.asList(address1, address2)); Hibernate simplemente pisa el campo addresses en el objeto Java con tu nueva lista. No necesita consultar nada a la base.
+
+-En la version de Spring 3.4.5 y como estamos trabajando directamente con commandlinerunner, va a mostrar los ids de los addresses como null (cambiando a la 3.1.5, sí lo haria). Porque en proyectos reales grandes (con miles de entidades), actualizar todos los objetos en memoria apenas se hace save sería un gasto enorme en rendimiento. Por eso, ahora solo actualiza automáticamente el ID del objeto raíz (Client), pero no los IDs de las entidades nuevas de las colecciones.
+
+Qué pasaría si organizás tu código bien en Service + Repository?
+Crearías un @Service separado (por ejemplo ClientService).
+Ahí el método @Transactional sí sería interceptado por el proxy de Spring.
+Entonces:
+Se abre una sesión real de Hibernate.
+Se maneja bien el ciclo de vida de las entidades.
+El flush() sería respetado como corresponde.
+El refresh() (de EntityManager) Gpodría usarse.
+Y los IDs en el objeto refrescado aparecerían bien.
+
+-Poner spring.jpa.properties.hibernate.enable_lazy_load_no_trans=true en application.properties. Permite que Hibernate cargue colecciones o atributos LAZY aunque no estés dentro de una transacción activa. Si bien esto se considera un antipatron y no es recomendable en aplicaciones web, como estamos en consola y en modo desarrollador no hay problema. 
+Como alternativa se puede agregar la propiedad fetch = FetchType.EAGER en la anotación @OneToMany.
+
+-Para no usar estos trucos, se puede crear una consulta personalizada en el repositorio (asi no necesita usar el proxy, ni la carga perezosa, ni el eager haciendo muchas consultas):
+	@Query("select c from Client c join fetch c.addresses where c.id = ?1")
+        Optional<Client> findOne(Long id);
+
+
+
+-Uso de @JoinTable para personalizar tabla intermedia:
+
+    @OneToMany(cascade = { CascadeType.ALL }, orphanRemoval = true)
+    // @JoinColumn(name = "client_id")
+    @JoinTable(name = "tbl_clientes_to_direcciones", joinColumns = @JoinColumn(name = "id_cliente"), inverseJoinColumns = @JoinColumn(name = 				"id_direccion"), uniqueConstraints = @UniqueConstraint(columnNames = {"id_direccion" }))
+    private List<Address> addresses;
+
+
+-Explicación de ChatGPT e claves foráneas, tablas itnermedias y entidades dueñas:
+¿Por qué Hibernate asocia joinColumns a la tabla Client, si en otros casos (sin tabla intermedia) la tabla Address sería la que tiene la FK?
+La respuesta es:
+1. Porque la anotación está en el Client
+Vos estás parado en la clase Client.
+Ahí declaraste @OneToMany(...) private List<Address> addresses;.
+Como no hay mappedBy, Hibernate interpreta que Client es la entidad dueña de la relación (propietario en JPA).
+Por contrato de JPA:
+"La entidad que declara la relación (sin mappedBy) es la que define el mapeo físico de la relación."
+Entonces, el joinColumns que estás escribiendo se entiende que referencia a la tabla asociada a Client.
+2. Porque @JoinTable cambia las reglas normales
+Cuando hay tabla intermedia, ya no es como el modelo directo (sin tabla intermedia):
+Sin tabla intermedia: La tabla hija (addresses) tiene una FK hacia el padre (client).	
+Con tabla intermedia: La tabla intermedia (tbl_clientes_to_direcciones) tiene dos FK: una hacia client, otra hacia address.
+Entonces:
+Ya no se agrega client_id en la tabla addresses.
+Hibernate necesita saber dónde está el client_id.
+Y eso se lo decís explícitamente vos con joinColumns.
+Pero ¿qué tabla referencia joinColumns?
+Siempre referencia al ID de la entidad donde está declarada la relación.
+¿Qué ID?
+El de Client.
+Porque estás escribiendo el @JoinTable en Client.
+Un mini resumen con tus palabras
+Sin tabla intermedia: el hijo (ej: addresses) lleva la FK.
+Con tabla intermedia: la tabla intermedia lleva dos FK, y la relación es administrada desde el lado que anotaste.
+Hibernate "sabe" que joinColumns apunta al ID de Client porque estás escribiendo todo esto dentro de la clase Client.
+(No lo deduce mágicamente de la base de datos, lo deduce de la ubicación de la anotación en el código).
+
+-El remove no va a funcionar porque la referencia del objeto, cuando se persiste con JPA, cambia. Son dos instancias distntas, apuntan a espacios de memoria diferentes. Para solucionarlo, hay que implementar el equals (con source action) en la clase Address, para cambiar el criterio de comparación por valor del id en vez de por referencia:
+
+	@Transactional
+	public void removeAddress() {
+	
+		Client client = new Client("Fran", "Moras");
+
+		Address address1 = new Address("El vergel", 1234);
+		Address address2 = new Address("Vasco de Gama", 9875);
+
+		client.getAddresses().add(address1);
+		client.getAddresses().add(address2);
+
+		clientRepository.save(client);
+
+		System.out.println(client);
+
+		Optional<Client> optionalClient = clientRepository.findById(3L);
+		optionalClient.ifPresent(c -> {
+			c.getAddresses().remove(address1);
+			clientRepository.save(c);
+			System.out.println(c);
+		});
+
+	}
+
+-Para el delete con relaciones existenes anda asi:
+	@Transactional
+	public void removeAddressFindById() {
+
+		Optional<Client> optionalClient = clientRepository.findById(2L);
+		optionalClient.ifPresent(client -> {
+
+			Address address1 = new Address("El vergel", 1234);
+			Address address2 = new Address("Vasco de Gama", 9875);
+
+			client.setAddresses(Arrays.asList(address1, address2));
+
+			clientRepository.save(client);
+
+			System.out.println(client);
+
+			Optional<Client> optionalClient2 = clientRepository.findById(2L);
+			optionalClient2.ifPresent(c -> {
+				Address addressToRemove = c.getAddresses()
+						.stream()
+						.filter(a -> "Vasco de Gama".equals(a.getStreet()))
+						.findFirst()
+						.orElseThrow(() -> new RuntimeException("Address not found"));
+				c.getAddresses().remove(addressToRemove);
+				clientRepository.save(c);
+				System.out.println(c);
+			});
+
+		});
+
+	}
+Hay que encontrar de nuevo el objeto con filter porque no es el mismo después de la persistencia.
+
+
+-Nombrar a la otra clase de la relacion en el toString() se hace en una sola de ellas, porque, si no, se genera un loop infinito.
+
+
+-En una relación @OneToMany NO bidireccional (unidireccional):
+Solo una clase (el "padre") tiene la referencia a la colección (List<Address>).
+No existe ninguna referencia de vuelta desde el Address hacia el Client.
+Usás @JoinColumn en el lado del @OneToMany, sobre la lista.
+Hibernate genera una foreign key en la tabla hija (addresses) apuntando al padre (client).
+
+En una relación @OneToMany bidireccional:
+El padre (Client) tiene una lista de addresses.
+Cada Address tiene una referencia al Client.
+El @JoinColumn ahora va en el lado de @ManyToOne (en la clase hija Address).
+Y el @OneToMany en el padre usa mappedBy, para indicar que la otra clase (hija) es la que maneja realmente la relación.
+
+-	@Transactional
+	public void oneToManyInvoiceBidireccional() {
+
+		Client client = new Client("Fran", "Moras");
+
+		Invoice invoice1 = new Invoice("compras de la casa", 5000L);
+		Invoice invoice2 = new Invoice("compras de oficina", 8000L);
+
+		List<Invoice> invoices = new ArrayList<>();
+		invoices.add(invoice1);
+		invoices.add(invoice2);
+		client.setInvoices(invoices);
+
+		invoice1.setClient(client);
+		invoice2.setClient(client);
+
+		clientRepository.save(client);
+
+		System.out.println(client);
+	}
+
+Guardamos solo el cliente porque al tener activada la opción de cascada en la relación, automáticamente se guardan las facturas también.
+
+Forma optimizada:
+
+	@Transactional
+	public void oneToManyInvoiceBidireccional() {
+
+		Client client = new Client("Fran", "Moras");
+
+		Invoice invoice1 = new Invoice("compras de la casa", 5000L);
+		Invoice invoice2 = new Invoice("compras de oficina", 8000L);
+
+		client.addInvoice(invoice1).addInvoice(invoice2);
+
+		clientRepository.save(client);
+
+		System.out.println(client);
+	}
+
+En Client:
+
+public Client addInvoice(Invoice invoice) {
+        invoices.add(invoice);
+        invoice.setClient(this);
+        return this;
+} // tipo de retorno Client para devolver una referencia y poder encadenar métodos
+
+-Para solucionar el error que no soporta mas de dos fetch de colecciones en una consuta, cambiar los list por set.
+
+-Haciendo left join de la clase cliente con las direccioens y las facturas (y los detalles de cliente) en las consultas personalizadas, no tendremos el problema de lazy fetching porque estamos trayendo todos los datos al contexto de persistencia, con esa misma consulta.
+
+
+-	@Transactional
+	public void oneToOneBidireccional() {
+
+		Client client = new Client("Erba", "Pura");
+
+		ClientDetails clientDetails = new ClientDetails(true, 5000);
+
+		client.setClientDetails(clientDetails);
+		// clientDetails.setClient(client);
+		clientRepository.save(client);
+
+		System.out.println(client);
+
+	}
+
+Se puede optimizar poniendo lo comentado en el setClientDetails de Client:
+
+    public void setClientDetails(ClientDetails clientDetails) {
+        this.clientDetails = clientDetails;
+        clientDetails.setClient(this);
+    }
+
+Similar con el remove, pero cuidado con el orden de las sentencias:
+    public void removeClientDetails(ClientDetails clientDetails) {
+        clientDetails.setClient(null);
+        this.clientDetails = null;
+    }
+
+
+-   @ManyToMany(cascade = { CascadeType.PERSIST, CascadeType.MERGE })
+    Set<Course> courses;               
+
+No ponemos CascadeType.ALL porque si eliminamos un alumno, no podemos eliminar el curso también, ya que puede estar siendo ocupado por otros estudiantes al mismo tiempo.
+
+
+-Este código, en la version 3.4.5 de Spring Boot (pero no en la 3.1.5), me genera dos registros del curso2:
+
+	@Transactional
+	public void manyToManyFind() {
+
+		Optional<Student> studentOptional1 = studentRepository.findById(1L);
+		Optional<Student> studentOptional2 = studentRepository.findById(2L);
+
+		Student student1 = studentOptional1.get();
+		Student student2 = studentOptional2.get();
+
+		Course course1 = new Course("Curso de java master", "Andres");
+		Course course2 = new Course("Curso de Spring Boot", "Andres");
+
+		student1.setCourses(Set.of(course1, course2));
+		student2.setCourses(Set.of(course2));
+
+		studentRepository.saveAll(List.of(student1, student2));
+
+		System.out.println(student1);
+		System.out.println(student2);
+
+	}
+
+
+Cambió cómo Hibernate maneja entidades nuevas (transient) relacionadas en cascada.
+Ya no reconoce automáticamente que un objeto repetido en memoria es el mismo, salvo que esté attached (persistido o identificado).
+Cada new Course(...), aunque sea la misma instancia, Hibernate trata de "cascadear" la persistencia dos veces si no ve el ID asignado aún.
+Este problema lo documentaron como un cambio deliberado en Hibernate 6.3:
+"Hibernate no considera entidades transient como iguales durante persistencia en cascada. Se procesan independientemente."
+En Hibernate 6.1 (Spring Boot 3.1.5), Hibernate sí detectaba instancias compartidas y no duplicaba.
+En Hibernate 6.3 (Spring Boot 3.4.5), procesa cada objeto nuevo sin deduplicarlo automáticamente.
+Soluciones:
+Persistir manualmente los Course primero (para darles ID).
+O, hacer merge en vez de persist si sabés que podrían ser repetidos.
+O, buscar si existen antes de asignarlos (findByName, findBySomething).
+
+Solución:
+
+	@Transactional
+	public void manyToManyFind() {
+		// Esta version no genera registros duplicados en la version 3.4.5 pero hay que
+		// desactivar el cascade
+		// 1. Guardás los cursos primero (si no existen todavía)
+		Course course1 = new Course("Curso de Java Master", "Andres");
+		Course course2 = new Course("Curso de Spring Boot", "Andres");
+		courseRepository.saveAll(List.of(course1, course2));
+
+		// 2. Los traés ya attachados
+		Course course1Db = courseRepository.findByName("Curso de Java Master").orElseThrow();
+		Course course2Db = courseRepository.findByName("Curso de Spring Boot").orElseThrow();
+
+		// 3. Creás estudiantes
+		Student student1 = new Student("Jano", "Pura");
+		Student student2 = new Student("Erba", "Doe");
+
+		// 4. Asignás cursos reales persistidos
+		student1.setCourses(Set.of(course1Db, course2Db));
+		student2.setCourses(Set.of(course2Db));
+
+		// 5. Guardás estudiantes
+		studentRepository.saveAll(List.of(student1, student2));
+
+		System.out.println(student1);
+		System.out.println(student2);
+	}
+
+
+
+Diferencia en hacer los news de studen y course en el mismo método (no duplica) y traer de la base los studens y ahcer news de courses (duplica):
+
+No duplica: 
+
+Student student1 = new Student(...);
+Student student2 = new Student(...);
+
+Course course1 = new Course(...);
+Course course2 = new Course(...);
+
+student1.setCourses(Set.of(course1, course2));
+student2.setCourses(Set.of(course2));
+
+studentRepository.saveAll(List.of(student1, student2));
+
+Aquí student1, student2, course1, y course2 todos son entidades nuevas (transient) en la misma sesión.
+Hibernate hace un persist en cascada de todos juntos, sin conflictos, porque nunca cerraste la sesión, nunca hiciste un findById, nunca tocaste nada "medio gestionado, medio no".
+Todo es limpio.
+Todo es visto como "nuevas entidades" coordinadas.
+
+
+Duplica:
+
+Student student1 = studentRepository.findById(1L).get();
+Student student2 = studentRepository.findById(2L).get();
+
+Course course1 = new Course(...);
+Course course2 = new Course(...);
+
+student1.setCourses(Set.of(course1, course2));
+student2.setCourses(Set.of(course2));
+
+studentRepository.saveAll(List.of(student1, student2));
+
+
+student1 y student2 NO son entidades nuevas (transient).
+Son entidades ya existentes en la base que trajiste con findById.
+(Ya tienen ID, ya están en la base.)
+course1 y course2 SÍ son nuevas (transient).
+Cuando hacés saveAll, Hibernate:
+Vuelve a mirar student1.
+Dice: "uh, tiene cursos nuevos (transient) en la colección."
+Persisto course1 y course2 por cascada.
+Vuelve a mirar student2.
+"¡Tiene otro course2 en la colección!"
+Pero Hibernate ya hizo un persist de course2 antes, y course2 sigue siendo transient (porque no fue attachado a la sesión).
+Hibernate lo intenta persistir de nuevo, como si fuera otra cosa.
+Y ahí se duplica.
+
+
+Asi también anda (ya tenemos cursos y estudiantes en la base):
+
+	public void manyToManyFind2() {
+
+		Optional<Student> studentOptional1 = studentRepository.findById(1L);
+		Optional<Student> studentOptional2 = studentRepository.findById(2L);
+
+		Student student1 = studentOptional1.get();
+		Student student2 = studentOptional2.get();
+
+		Course course1 = courseRepository.findById(1L).get();
+		Course course2 = courseRepository.findById(2L).get();
+
+		student1.setCourses(Set.of(course1, course2));
+		student2.setCourses(Set.of(course2));
+
+		studentRepository.saveAll(List.of(student1, student2));
+
+		System.out.println(student1);
+		System.out.println(student2);
+
+	}
+
+-Acordarse de agregar hashcodes (y equals) para que se compare por valor y no por instancia al momento de eliminar.
+
+- public interface ProductRepository extends CrudRepository<Product, Long> {
+
+}
+
+Los métodos básicos como save, findAll ya vienen implementados por CrudRepository. Si quiero agregar métodos personalizados simples, puedo declarar solo la firma en la interfaz (usando query methods o @Query). Si necesito lógica más compleja, creo una interfaz ProductRepositoryCustom, la cual será extendida por ProductRepository, y luego creo una clase ProductRepositoryImpl que implementa esa interfaz personalizada.
+
+
+-  @GetMapping("/{id}")
+    public Product view(@PathVariable Long id) {
+        return service.findById(id).orElse(null);
+    }
+
+Deberia devolver un ResponseEntity, porque peude ser que no se encuentra el producto y entonces debe devolver un mensaje de error.
+
+-Ejemplo de ventaja de Spring: con @RequestBody en lso parámetros, se automatiza la conversion de los datos venidos por json al objeto (gracias a la librería Jackson).
+
+- Si omito un campo en el json, Jackson lo deja en null. Salvo que sea un tipo primitivo, que le pondrá el valor por defecto (0, false). Si envió un campo adicional que no existe, Jackson lo ignora por defecto. Pero se peude cambiar para que de error con al propiedad "@JsonIgnoreProperties(ignoreUnknown = false)" en la clase de la entidad.
+
+- Si el save no detecta un id, hace una creación, sino un update.
+
+-Cuando queresmo devolver algo necesitamos un if, no la expresión lambda del ifpresent.
+
+-Si queremos añadir una dependencia nueva, vamos al comando Spring Initializr: Add Starters, que agrega dependencias al po.xml, como cuando creamos el proyecto (guarda que me agrego la dependencia mal ubicada). O copairlo a mano en el pom.xml. Agregamos el Bean Validation.
+
+-Ponemos @Valid antes de @RequestBody en el controlador. En la clase Entity podemos dejar restriccioens sobre algunos campos como: @NotEmpty, @Size(min = 3, max = 20), @Min(500), @NotNull, @NoBlank.
+
+
+-En los parametros de rutas post o put, "BindingResult result" tiene que estar justo al lado del objeto que queremos validar (encapsula todos los mensajes de error que se obtienen producto de validaciones no satisfechas). Si existe un error, ahora obtenemos cual o cuales fueron y mandamos los mensajes correspondientes ayudandonos con metodos que capturan la informacion del error (campo, mensaje por defecto).
+
+ @PostMapping
+    public ResponseEntity<?> create(@Valid @RequestBody Product product, BindingResult result) {
+        if (result.hasFieldErrors()) {
+            return validation(result);
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.save(product));
+    }
+
+ private ResponseEntity<?> validation(BindingResult result) {
+        Map<String, String> errors = new HashMap<>();
+        result.getFieldErrors().forEach(err -> {
+            errors.put(err.getField(), "El campo " + err.getField() + " " + err.getDefaultMessage());
+        });
+        return ResponseEntity.badRequest().body(errors);
+    }
+
+-Mensajes de error personalizados:
+--AppConfig:
+    @Configuration
+    @PropertySource("classpath:messages.properties")
+    public class AppConfig {
+
+    }
+
+--messages.properties:
+    NotEmpty.product.name=es requerido!
+    NotBlank.product.description=es requerido, por favor
+    NotNull.product.price=no puede ser nulo, ok!
+    Min.product.price=debe ser un valor mayor o igual que 500!
+
+--Product:
+    @NotEmpty(message = "{NotEmpty.product.name}")
+    @Size(min = 3, max = 20)
+    private String name;
+
+    @Min(value = 500, message = "{Min.product.price}")
+    @NotNull(message = "{NotNull.product.price}")
+    private Integer price;
+
+    @NotBlank(message = "{NotBlank.product.description}")
+    private String description;
+
+
+-Validar de forma mas programática usando clase Validation (en vez de anotaciones):
+ProductValidation (en la carpeta raíz). Sacar los @Valid antes de @RequestBody, que sirven para validar por anotaciones, porque si no tendríamos dos validadores ejecutándose al mismo tiempo:
+
+@Component
+public class ProductValidation implements Validator {
+
+    @Override
+    @SuppressWarnings("null")
+    public boolean supports(Class<?> clazz) {
+        return Product.class.isAssignableFrom(clazz);
+    }
+
+    @Override
+    @SuppressWarnings("null")
+    public void validate(Object target, Errors errors) {
+        Product product = (Product) target;
+        ValidationUtils.rejectIfEmptyOrWhitespace(errors, "name", null, "es requerido!");
+        // ValidationUtils.rejectIfEmptyOrWhitespace(errors, "description", null,
+        // "es requerido, por favor");
+        if (product.getDescription() == null || product.getDescription().isBlank()) {
+            errors.rejectValue("description", null, "es requerido, por favor");
+        }
+
+        if (product.getPrice() == null) {
+            errors.rejectValue("price", null, "no puede ser nulo, ok!");
+        } else if (product.getPrice() < 500) {
+            errors.rejectValue("price", null, "debe ser un valor mayor o igual que 500!");
+        }
+    }
+
+}
+
+En el controller, en los métodos post y put, antes del hasFieldErrors():
+validation.validate(product, result);
+
+
+-Un archivo con @interface es una anotacion
+
+-Crear anotaciones personalizadas:
+
+En un package validation:
+
+IsRequired:
+@Constraint(validatedBy = RequiredValidation.class)
+@Retention(RetentionPolicy.RUNTIME)
+@Target({ ElementType.FIELD, ElementType.METHOD })
+public @interface IsRequired {
+    String message() default "es requerido usando anotaciones";
+
+    Class<?>[] groups() default {};
+
+    Class<? extends Payload>[] payload() default {};
+
+}
+
+RequiredValidation:
+
+public class RequiredValidation implements ConstraintValidator<IsRequired, String> {
+
+    @Override
+    public boolean isValid(String value, ConstraintValidatorContext context) {
+        // return (value != null && !value.isBlank());
+        return StringUtils.hasText(value);
+
+    }
+
+}
+
+En Product:
+
+    // @NotBlank(message = "{NotBlank.product.description}")
+    @IsRequired
+    private String description;
+
+    // @NotEmpty(message = "{NotEmpty.product.name}")
+    @IsRequired(message = "{IsRequired.product.name}")
+    @Size(min = 3, max = 20)
+    private String name;
